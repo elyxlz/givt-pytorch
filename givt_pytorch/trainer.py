@@ -10,14 +10,14 @@ from accelerate import Accelerator
 from transformers import PreTrainedModel, get_inverse_sqrt_schedule
 import wandb
 
-from .model import DemoModel
+from .model import GIVT
 from .data import DemoDataset
 
 
 @dataclass
 class TrainConfig:
     # main
-    name: str = "neural-tokenizer_test"
+    name: str = "givt-test"
     mixed_precision: str = "no"  # "no", "fp16", "bf16"
     gradient_checkpointing: bool = False
     cpu: bool = False
@@ -47,7 +47,7 @@ class TrainConfig:
     val_every: int = None
     resume_from_ckpt: str = None
     use_wandb: bool = False
-    wandb_project_name: str = "neural-tokenizer"
+    wandb_project_name: str = "givt-pytorch"
 
     def to_dict(self):
         return vars(self)
@@ -56,7 +56,7 @@ class TrainConfig:
 class Trainer:
     def __init__(
         self,
-        model: DemoModel,
+        model: GIVT,
         dataset: DemoDataset,
         train_config: TrainConfig,
     ):
@@ -292,7 +292,7 @@ class Trainer:
 
             if self.accelerator.is_main_process:
                 self.accelerator.print("Pushing model to hub...")
-                unwrapped_model: DemoModel = self.accelerator.unwrap_model(model)
+                unwrapped_model: GIVT = self.accelerator.unwrap_model(model)
 
                 unwrapped_model.push_to_hub(
                     self.train_config.hub_namespace,

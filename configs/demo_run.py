@@ -1,4 +1,4 @@
-from package_name import (
+from givt_pytorch import (
     DemoModel,
     DemoModelConfig,
     DemoDataset,

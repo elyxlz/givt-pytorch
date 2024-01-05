@@ -1,11 +1,11 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="xxx",
+    name="givt_pytorch",
     version="0.0.1",
-    author="xxx",
-    author_email="xxx",
-    description="xxx",
+    author="Elio Pascarelli",
+    author_email="elio@pascarelli.com",
+    description="A partial implementation of Generative Infinite Vocabulary Transformer (GIVT) from Google Deepmind, in PyTorch.",
     url="",
     classifiers=[
         "Framework :: Pytorch",

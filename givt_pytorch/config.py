@@ -1,7 +1,7 @@
 from transformers import PretrainedConfig
 
-class DemoModelConfig(PretrainedConfig):
-    model_type = "demo_model"
+class GIVTConfig(PretrainedConfig):
+    model_type = "givt"
 
     def __init__(
         self,

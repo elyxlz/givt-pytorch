@@ -1,5 +1,4 @@
-A minimalistic and hackable template for developing, training, and sharing deep learning models.
-
+A partial implementation of Generative Infinite Vocabulary Transformer (GIVT) from Google Deepmind, in PyTorch.
 
 ## Stack
 - Pytorch
@@ -17,21 +16,13 @@ pip install -e '.[train]'
 pip install .
 ```
 
-## Structure
-```
-├── package_name
-│   ├── config.py # model config
-│   ├── data.py # data processing logic
-│   ├── model.py # model definition
-│   └── trainer.py # trainer class and train config
-```
 
 ## Usage (inference)
 ```py
-from package_name import DemoModel
+from givt_pytorch import GIVT
 
 # load pretrained checkpoint
-model = DemoModel.from_pretrained(xxx)
+model = GIVT.from_pretrained(xxx)
 ```
 
 ## Usage (training)
@@ -39,14 +30,14 @@ model = DemoModel.from_pretrained(xxx)
 Define a config file in `configs/`, called `demo_run` in this case:
 ```py
 from package_name import (
-    DemoModel,
-    DemoModelConfig,
+    GIVT,
+    GIVTCONfig,
     DemoDataset,
     Trainer,
     TrainConfig
 )
 
-model = DemoModel(DemoModelConfig(xxx))
+model = GIVT(GIVTConfig(xxx))
 dataset = DemoDataset(xxx)
 
 trainer = Trainer(

@@ -2,10 +2,9 @@ import functools
 import pdb
 
 from torch import nn, Tensor
-import torch.nn.functional as F
 from transformers import PreTrainedModel
 
-from .config import DemoModelConfig
+from .config import GIVTConfig
 
 """ debug """
 
@@ -26,10 +25,10 @@ def debug_func(func):
 
 """ Build up your model here"""
 
-class DemoModel(PreTrainedModel):
-    config_class = DemoModelConfig
+class GIVT(PreTrainedModel):
+    config_class = GIVTConfig
 
-    def __init__(self, config: DemoModelConfig):
+    def __init__(self, config: GIVTConfig):
         super().__init__(config)
 
         self.net = nn.Linear(config.size, config.size)
