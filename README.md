@@ -10,7 +10,7 @@ pip install .
 ```
 
 
-## Usage (inference)
+## Inference
 ```py
 from givt_pytorch import GIVT
 
@@ -18,7 +18,7 @@ from givt_pytorch import GIVT
 model = GIVT.from_pretrained(xxx)
 ```
 
-## Usage (training)
+## Training
 
 Define a config file in `configs/`, called `demo_run` in this case:
 ```py
