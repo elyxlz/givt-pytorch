@@ -1,12 +1,5 @@
 A partial implementation of Generative Infinite Vocabulary Transformer (GIVT) from Google Deepmind, in PyTorch.
 
-## Stack
-- Pytorch
-- Accelerate
-- Huggingface hub
-- Wandb
-
-
 ## Install
 ```sh
 # for training/development
