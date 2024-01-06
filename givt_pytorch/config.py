@@ -1,5 +1,6 @@
 from transformers import PretrainedConfig
 
+
 class GIVTConfig(PretrainedConfig):
     model_type = "givt"
 

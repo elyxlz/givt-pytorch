@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import os
 from tqdm import tqdm
 import dotenv
+
 dotenv.load_dotenv()
 
 import torch
