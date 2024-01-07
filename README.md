@@ -1,9 +1,9 @@
 ## GIVT-PyTorch
 A partial implementation of Generative Infinite Vocabulary Transformer (GIVT)[https://arxiv.org/abs/2312.02116] from Google Deepmind, in PyTorch.
 
-This repo only implements the causal version of GIVT, and does away with the k mixtures predictions or the use of the full covariance matrix, as for most purposes they did not yield better results. The end-goal of this repo is to apply GIVT as a simple and powerful solution to audio generation with Audio VAEs.
+This repo only implements the causal version of GIVT, and does away with the k mixtures predictions or the use of the full covariance matrix, as for most purposes they did not yield significantly better results.
 
-The decoder transformer implementation is also modernized, adopting a Llama style architecture with gated MLPs, SilU, RMSNorm, and rotary positional embeddings.
+The decoder transformer implementation is also modernized, adopting a Llama style architecture with gated MLPs, SilU, RMSNorm, and RoPE.
 
 ## Install
 ```sh
@@ -65,6 +65,9 @@ And then run the training.
 ```sh
 accelerate launch train.py {config_name}
 ```
+
+## TODO
+- [ ] Test out with latents from an audio vae
 
 ## References
 ```bibtex
