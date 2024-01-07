@@ -342,6 +342,7 @@ class GIVTModel(nn.Module):
             if self.mask_cache is None:
                 raise TypeError("You need to call `gpt.set_kv_cache()`")
             mask = self.mask_cache.index_select(2, input_pos)
+            # mask = None
         else:
             cos = self.cos[:T]
             sin = self.sin[:T]
@@ -384,7 +385,6 @@ class GIVT(PreTrainedModel):
     ) -> Tensor:
         dist = self.model.forward(x[:, 1:])  # (b, s, d*2)
         yhat = x[:, :-1]  # (b, s, d)
-
 
         # Compute the negative log likelihood loss
         loss = -dist.log_prob(yhat.contiguous().float()).float().mean()
@@ -440,11 +440,9 @@ class GIVT(PreTrainedModel):
 
         self.model.max_seq_length = max_returned_tokens
 
-        # with device and dtype
         with torch.device(audio_prompt.device):
             self.model.set_kv_cache(batch_size=1)
             
-
         if compile:
             torch._dynamo.config.automatic_dynamic_shapes = True
             torch._inductor.config.triton.unique_kernel_names = True
@@ -452,14 +450,9 @@ class GIVT(PreTrainedModel):
             global next_token
             self.next_token = torch.compile(self.next_token, mode="reduce-overhead")
 
-
-
         T = audio_prompt.size(0)
         assert max_returned_tokens > T
         if self.model.max_seq_length < max_returned_tokens - 1:
-            # rolling the kv cache based on the `input_pos` value would be necessary. However, doing so would introduce a
-            # data dependency on the `input_pos` tensor and impact model compilation. Since this setting is uncommon, we do
-            # not support it to avoid negatively impacting the overall speed
             raise NotImplementedError(f"max_seq_length {self.model.max_seq_length} needs to be >= {max_returned_tokens - 1}")
 
         device = audio_prompt.device

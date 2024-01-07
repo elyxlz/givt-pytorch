@@ -23,13 +23,12 @@ from givt_pytorch import GIVT
 model = GIVT.from_pretrained('elyxlz/givt-test')
 
 latents = torch.randn((4, 500, 32)) # vae latents (bs, seq_len, size)
-loss = model.forward(latents) # NLL Loss
+loss = model.forward(latents).loss # NLL Loss
 
 prompt = torch.randn((50, 32)) # no batched inference implemented
 generated = model.generate(
     prompt=prompt, 
     max_len=500,
-    temperature=0.95,
     cfg_scale=0.5,
     temperature=0.95,
 ) # (500, 32)
@@ -68,6 +67,7 @@ accelerate launch train.py {config_name}
 
 ## TODO
 - [ ] Test out with latents from an audio vae
+- [ ] Add CFG with rejection sampling
 
 ## References
 ```bibtex
