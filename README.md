@@ -41,13 +41,13 @@ Define a config file in `configs/`, such as this one:
 from package_name import (
     GIVT,
     GIVTConfig,
-    DemoDataset,
+    DummyDataset,
     Trainer,
     TrainConfig
 )
 
 model = GIVT(GIVTConfig())
-dataset = DemoDataset()
+dataset = DummyDataset()
 
 trainer = Trainer(
     model=model,

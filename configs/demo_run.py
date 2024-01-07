@@ -1,7 +1,7 @@
-from givt_pytorch import DemoModel, DemoModelConfig, DemoDataset, Trainer, TrainConfig
+from givt_pytorch import GIVT, GIVTConfig, DummyDataset, Trainer, TrainConfig
 
-model = DemoModel(DemoModelConfig())
+model = GIVT(GIVTConfig())
 
-dataset = DemoDataset()
+dataset = DummyDataset()
 
 trainer = Trainer(model=model, dataset=dataset, train_config=TrainConfig())

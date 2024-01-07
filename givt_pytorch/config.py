@@ -11,7 +11,7 @@ class GIVTConfig(PretrainedConfig):
         intermediate_dim: int = 64,
         num_heads: int = 4,
         num_layers: int = 2,
-        block_size: int = 128,
+        block_size: int = 512,
         eps: float = 1e-8,
         rope_base: int = 1000000,
         rope_rotary_percentage: float = 1.0,

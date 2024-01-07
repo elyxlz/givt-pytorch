@@ -16,5 +16,5 @@ class DummyDataset(Dataset):
 
     def __getitem__(self, idx: int):
         return dict(
-            latents=torch.randn(self.seq_len, self.dim)
+            x=torch.randn(self.seq_len, self.dim)
         )

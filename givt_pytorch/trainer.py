@@ -12,7 +12,7 @@ from transformers import PreTrainedModel, get_inverse_sqrt_schedule
 import wandb
 
 from .model import GIVT
-from .data import DemoDataset
+from .data import DummyDataset
 
 
 @dataclass
@@ -58,7 +58,7 @@ class Trainer:
     def __init__(
         self,
         model: GIVT,
-        dataset: DemoDataset,
+        dataset: DummyDataset,
         train_config: TrainConfig,
     ):
         self.train_config = train_config
@@ -160,7 +160,7 @@ class Trainer:
         self.accelerator.print("Trainable parameters: ", trainable_params / 1e6, "M")
 
     def training_step(self, batch):
-        loss = self.model.forward(**batch)
+        loss = self.model.forward(**batch).loss
         self.accelerator.backward(loss)
         self.accelerator.clip_grad_norm_(
             self.model.parameters(), self.train_config.grad_norm
@@ -178,7 +178,7 @@ class Trainer:
         self.model.eval()
         val_loss = 0.0
         for batch in tqdm(val_loader, desc="Validation"):
-            loss = self.model.forward(**batch)
+            loss = self.model.forward(**batch).loss
             val_loss += loss.item() / len(val_loader)
         self.accelerator.log({"val_loss": loss})
         self.model.train()
