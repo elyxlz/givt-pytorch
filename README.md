@@ -1,5 +1,5 @@
 ## GIVT-PyTorch
-A partial implementation of Generative Infinite Vocabulary Transformer (GIVT) from Google Deepmind, in PyTorch.
+A partial implementation of Generative Infinite Vocabulary Transformer (GIVT)[https://arxiv.org/abs/2312.02116] from Google Deepmind, in PyTorch.
 
 This repo only implements the causal version of GIVT, and does away with the k mixtures predictions or the use of the full covariance matrix, as for most purposes they did not yield better results. The end-goal of this repo is to apply GIVT as a simple and powerful solution to audio generation with Audio VAEs.
 
