@@ -17,6 +17,7 @@ setup(
         "transformers",
         "torch",
         "python-dotenv",
+        "einops",
     ],
     extras_require={"train": ["accelerate", "wandb", "tqdm"]},
     license="MIT",

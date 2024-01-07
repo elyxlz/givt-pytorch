@@ -49,20 +49,17 @@ def build_rope_cache(
 
 
 def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-    head_size = x.size(-1)
-    x1 = x[..., : head_size // 2]  # (B, nh, T, hs/2)
-    x2 = x[..., head_size // 2 :]  # (B, nh, T, hs/2)
+    head_dim = x.size(-1)
+    x1 = x[..., : head_dim // 2]  # (B, nh, T, hs/2)
+    x2 = x[..., head_dim // 2 :]  # (B, nh, T, hs/2)
     rotated = torch.cat((-x2, x1), dim=-1)  # (B, nh, T, hs)
     roped = (x * cos) + (rotated * sin)
     return roped.to(dtype=x.dtype)
 
 
-def build_mask_cache(
-    max_seq_length: int, device: torch.device | None = None
-) -> Tensor:
+def build_mask_cache(max_seq_length: int, device: torch.device | None = None) -> Tensor:
     ones = torch.ones((max_seq_length, max_seq_length), device=device, dtype=torch.bool)
     return torch.tril(ones).unsqueeze(0).unsqueeze(0)
-
 
 
 class KVCache(nn.Module):
@@ -81,9 +78,7 @@ class KVCache(nn.Module):
             "v", torch.zeros(v_shape, device=device, dtype=dtype), persistent=False
         )
 
-    def forward(
-        self, input_pos: Tensor, k: Tensor, v: Tensor
-    ) -> tuple[Tensor, Tensor]:
+    def forward(self, input_pos: Tensor, k: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
         # move the buffer to the activation dtype for when AMP is used
         self.k = self.k.to(k.dtype)
         self.v = self.v.to(v.dtype)
@@ -97,14 +92,8 @@ class KVCache(nn.Module):
         torch.nn.init.zeros_(self.v)
 
 
-
 class RMSNorm(nn.Module):
-    def __init__(
-        self,
-        size: int,
-        dim: int = -1,
-        eps: float = 1e-5
-    ):
+    def __init__(self, size: int, dim: int = -1, eps: float = 1e-5):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(size))
         self.eps = eps
@@ -124,18 +113,12 @@ class Attention(nn.Module):
         config: GIVTConfig,
     ):
         super().__init__()
-        hidden_dim = config.hidden_dim
-        num_heads = config.num_heads
         self.rope_n_elem = config.rope_n_elem
-        assert (
-            hidden_dim % num_heads
-        ), f"hidden_dim: {hidden_dim} must be divisible by num_heads: {num_heads}"
-
-        self.num_heads = num_heads
-        self.head_dim = hidden_dim // num_heads
-        self.qkv_proj = nn.Linear(hidden_dim, 3 * hidden_dim, bias=False)
-        self.o_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.norm = RMSNorm(hidden_dim)
+        self.num_heads = config.num_heads
+        self.head_dim = config.head_dim
+        self.qkv_proj = nn.Linear(config.hidden_dim, 3 * config.hidden_dim, bias=False)
+        self.o_proj = nn.Linear(config.hidden_dim, config.hidden_dim, bias=False)
+        self.norm = RMSNorm(config.hidden_dim)
 
         self.kv_cache: KVCache | None = None
 
@@ -150,11 +133,12 @@ class Attention(nn.Module):
         residual = x
         x = self.norm.forward(x)
 
-        q, k, v = self.qkv_proj.forward(x).chunk(3)  # (b, s, d)
+        q, k, v = self.qkv_proj.forward(x).chunk(3, dim=-1)  # (b, s, d)
         q, k, v = map(
             lambda t: rearrange(
-                t, "b s (nh hs) -> b nh s hd ", nh=self.num_heads, hs=self.head_dim
-            )
+                t, "b s (nh hd) -> b nh s hd ", nh=self.num_heads, hd=self.head_dim
+            ),
+            (q, k, v),
         )
 
         # rotary pos
@@ -163,11 +147,12 @@ class Attention(nn.Module):
         q = torch.cat((q_roped, q[..., self.rope_n_elem :]), dim=-1)
         k = torch.cat((k_roped, k[..., self.rope_n_elem :]), dim=-1)
 
+        # kv cache
         if input_pos is not None:
             if not isinstance(self.kv_cache, KVCache):
                 raise TypeError("You need to call `model.set_kv_cache()`")
             k, v = self.kv_cache(input_pos, k, v)
-            
+
         # q, k, v = map(lambda t: rearrange(t, "b s nh hd -> b nh s hd"))
 
         x = F.scaled_dot_product_attention(q, k, v, is_causal=True)
@@ -175,7 +160,7 @@ class Attention(nn.Module):
 
         x = self.o_proj.forward(x)
         return x + residual
-    
+
     def build_kv_cache(
         self,
         batch_size: int,
@@ -184,18 +169,20 @@ class Attention(nn.Module):
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ) -> KVCache:
-        heads = 1 if self.config.n_query_groups == 1 else self.config.n_head
-        v_shape = (batch_size, heads, max_seq_length, self.config.head_size)
+        heads = self.config.num_heads
+        v_shape = (batch_size, heads, max_seq_length, self.config.head_dim)
         if rope_cache_length is None:
             if self.config.rotary_percentage != 1.0:
-                raise TypeError("Please pass the `rope_cache_length=gpt.cos.size(-1)` value")
+                raise TypeError(
+                    "Please pass the `rope_cache_length=gpt.cos.size(-1)` value"
+                )
             k_shape = v_shape
         else:
             k_shape = (
                 batch_size,
                 heads,
                 max_seq_length,
-                rope_cache_length + self.config.head_size - self.config.rope_n_elem,
+                rope_cache_length + self.config.head_dim - self.config.rope_n_elem,
             )
         return KVCache(k_shape, v_shape, device=device, dtype=dtype)
 
@@ -208,21 +195,21 @@ class Mlp(nn.Module):
         super().__init__()
         hidden_dim = config.hidden_dim
         intermediate_dim = config.intermediate_dim
-        self.fc1 = nn.Linear(hidden_dim, intermediate_dim)
-        self.fc2 = nn.Linear(hidden_dim, intermediate_dim)
-        self.fc3 = nn.Linear(intermediate_dim, hidden_dim)
+        self.fc1 = nn.Linear(hidden_dim, intermediate_dim, bias=False)
+        self.fc2 = nn.Linear(hidden_dim, intermediate_dim, bias=False)
+        self.fc3 = nn.Linear(intermediate_dim, hidden_dim, bias=False)
         self.norm = RMSNorm(hidden_dim)
 
     def forward(self, x: Tensor) -> Tensor:
         residual = x
         x = self.norm.forward(x)
-        out = self.fc3.forward(F.SiLU(self.fc1.forward(x)) * self.fc2.forward(x))
+        out = self.fc3.forward(F.silu(self.fc1.forward(x)) * self.fc2.forward(x))
         return out + residual
 
 
 class Block(nn.Module):
     def __init__(self, config: GIVTConfig):
-        super().__init__(config)
+        super().__init__()
 
         self.attn = Attention(config)
         self.mlp = Mlp(config)
@@ -239,22 +226,27 @@ class Block(nn.Module):
         return self.mlp.forward(x)
 
 
-
 class GIVTModel(nn.Module):
     def __init__(
         self,
         config: GIVTConfig,
     ):
-        super().__init__(config)
+        super().__init__()
 
-        self.embed = nn.Embedding(config.input_dim, config.hidden_dim, bias=False) # TODO try with bias
+        self.config = config
+
+        self.embed = nn.Linear(
+            config.input_dim, config.hidden_dim, bias=False
+        )  # TODO try with bias
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_layers)])
         self.norm = RMSNorm(config.hidden_dim)
-        self.head = nn.Linear(config.hidden_dim, config.input_dim, bias=False)
+        self.head = nn.Linear(
+            config.hidden_dim, config.input_dim * 2, bias=False
+        )  # means and variances
 
-        self.max_seq_length = self.config.block_size
+        self.max_seq_length = config.block_size
         self.mask_cache: Tensor | None = None
-    
+
     @property
     def max_seq_length(self) -> int:
         return self._max_seq_length
@@ -266,7 +258,9 @@ class GIVTModel(nn.Module):
         This allows setting a smaller number to avoid allocating unused memory
         """
         if value > self.config.block_size:
-            raise ValueError(f"Cannot attend to {value}, block size is only {self.config.block_size}")
+            raise ValueError(
+                f"Cannot attend to {value}, block size is only {self.config.block_size}"
+            )
         self._max_seq_length = value
         if not hasattr(self, "cos"):
             # first call
@@ -294,7 +288,6 @@ class GIVTModel(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-
     def rope_cache(self, device: torch.device | None = None) -> tuple[Tensor, Tensor]:
         return build_rope_cache(
             seq_len=self.max_seq_length,
@@ -316,7 +309,7 @@ class GIVTModel(nn.Module):
         max_seq_length = self.max_seq_length
 
         # initialize the kv cache for all blocks
-        for block in self.transformer.h:
+        for block in self.blocks:
             block.attn.kv_cache = block.attn.build_kv_cache(
                 batch_size, max_seq_length, rope_cache_length, device, dtype
             )
@@ -326,17 +319,17 @@ class GIVTModel(nn.Module):
             # for the kv-cache support (only during inference), we only create it in that situation
             self.mask_cache = build_mask_cache(max_seq_length, device)
 
-
     def clear_kv_cache(self) -> None:
         self.mask_cache = None
-        for block in self.transformer.h:
+        for block in self.blocks:
             block.attn.kv_cache = None
 
-
-    def forward(self, x: Tensor, input_pos: Tensor | None = None) -> Tensor:
+    def forward(self, x: Tensor, input_pos: Tensor | None = None) -> tuple[Tensor, Tensor]:
         T = x.size(1)
         if self.max_seq_length < T:
-            raise ValueError(f"Cannot forward sequence of length {T}, max seq length is only {self.max_seq_length}.")
+            raise ValueError(
+                f"Cannot forward sequence of length {T}, max seq length is only {self.max_seq_length}."
+            )
 
         if input_pos is not None:  # use the kv cache
             cos = self.cos.index_select(0, input_pos)
@@ -350,14 +343,19 @@ class GIVTModel(nn.Module):
             mask = None
 
         x = self.embed.forward(x)
-        for block in self.transformer.h:
+        for block in self.blocks:
             b: Block
             x = block(x, cos, sin, mask, input_pos)
         x = self.norm.forward(x)
-        return self.head.forward(x)
+        y = self.head.forward(x)
+
+        y_means, y_vars = y.chunk(2, dim=-1)
+        y_vars = F.softplus(y_vars) + 1e-8
+        return y_means, y_vars
 
 
 """ main """
+
 
 @dataclass
 class GIVTTrainingOutput:
@@ -378,15 +376,19 @@ class GIVT(PreTrainedModel):
         x: Tensor,
         return_info: bool = True,
     ) -> Tensor:
-        inputs = x[1:]
-        predicted = self.model.forward(inputs)
-        targets = x[:-1]
+        y_means, y_vars = self.model.forward(x[:, 1:])  # (b, s, d*2)
+        yhat = x[:, :-1]  # (b, s, d)
 
-        loss = F.nll_loss(predicted.contiguous().float(), targets.contiguous().float()).float().mean()
+        dist = torch.distributions.Normal(
+            y_means.contiguous().float(), y_vars.contiguous().float().sqrt()
+        )
+
+        # Compute the negative log likelihood loss
+        loss = -dist.log_prob(yhat.contiguous().float()).float().mean()
 
         info = None
         if return_info:
-            info = dict(variance=predicted.chunk(2)[1].mean())
+            info = dict(variance=y_vars.mean().item())
 
         return GIVTTrainingOutput(loss=loss, info=info)
 
