@@ -1,6 +1,8 @@
 import functools
 import pdb
+from pdb import set_trace as bp
 from dataclasses import dataclass
+from tqdm import tqdm
 
 import torch
 from torch import nn, Tensor
@@ -10,8 +12,8 @@ from transformers import PreTrainedModel
 
 from .config import GIVTConfig
 
-""" debug """
 
+""" debug """
 
 def debug_func(func):
     """Decorator to debug a function when error is encountered."""
@@ -69,7 +71,7 @@ class KVCache(nn.Module):
         v_shape: tuple[int, int, int, int],
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
-    ) -> None:
+    ):
         super().__init__()
         self.register_buffer(
             "k", torch.zeros(k_shape, device=device, dtype=dtype), persistent=False
@@ -77,6 +79,9 @@ class KVCache(nn.Module):
         self.register_buffer(
             "v", torch.zeros(v_shape, device=device, dtype=dtype), persistent=False
         )
+
+    def __repr__(self):
+        return f"KVCache(k={self.k.size()}, v={self.v.size()})"
 
     def forward(self, input_pos: Tensor, k: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
         # move the buffer to the activation dtype for when AMP is used
@@ -87,7 +92,7 @@ class KVCache(nn.Module):
         v = self.v.index_copy_(2, input_pos, v)
         return k, v
 
-    def reset_parameters(self) -> None:
+    def reset_parameters(self):
         torch.nn.init.zeros_(self.k)
         torch.nn.init.zeros_(self.v)
 
@@ -113,9 +118,7 @@ class Attention(nn.Module):
         config: GIVTConfig,
     ):
         super().__init__()
-        self.rope_n_elem = config.rope_n_elem
-        self.num_heads = config.num_heads
-        self.head_dim = config.head_dim
+        self.config = config
         self.qkv_proj = nn.Linear(config.hidden_dim, 3 * config.hidden_dim, bias=False)
         self.o_proj = nn.Linear(config.hidden_dim, config.hidden_dim, bias=False)
         self.norm = RMSNorm(config.hidden_dim)
@@ -136,22 +139,22 @@ class Attention(nn.Module):
         q, k, v = self.qkv_proj.forward(x).chunk(3, dim=-1)  # (b, s, d)
         q, k, v = map(
             lambda t: rearrange(
-                t, "b s (nh hd) -> b nh s hd ", nh=self.num_heads, hd=self.head_dim
+                t, "b s (nh hd) -> b nh s hd ", nh=self.config.num_heads, hd=self.config.head_dim
             ),
             (q, k, v),
         )
 
         # rotary pos
-        q_roped = apply_rope(q[..., : self.rope_n_elem], cos, sin)
-        k_roped = apply_rope(k[..., : self.rope_n_elem], cos, sin)
-        q = torch.cat((q_roped, q[..., self.rope_n_elem :]), dim=-1)
-        k = torch.cat((k_roped, k[..., self.rope_n_elem :]), dim=-1)
+        q_roped = apply_rope(q[..., : self.config.rope_n_elem], cos, sin)
+        k_roped = apply_rope(k[..., : self.config.rope_n_elem], cos, sin)
+        q = torch.cat((q_roped, q[..., self.config.rope_n_elem :]), dim=-1)
+        k = torch.cat((k_roped, k[..., self.config.rope_n_elem :]), dim=-1)
 
         # kv cache
         if input_pos is not None:
             if not isinstance(self.kv_cache, KVCache):
                 raise TypeError("You need to call `model.set_kv_cache()`")
-            k, v = self.kv_cache(input_pos, k, v)
+            k, v = self.kv_cache.forward(input_pos, k, v)
 
         x = F.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, is_causal=mask is None
@@ -169,8 +172,7 @@ class Attention(nn.Module):
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ) -> KVCache:
-        heads = self.config.num_heads
-        v_shape = (batch_size, heads, max_seq_length, self.config.head_dim)
+        v_shape = (batch_size, self.config.num_heads, max_seq_length, self.config.head_dim)
         if rope_cache_length is None:
             if self.config.rotary_percentage != 1.0:
                 raise TypeError(
@@ -180,7 +182,7 @@ class Attention(nn.Module):
         else:
             k_shape = (
                 batch_size,
-                heads,
+                self.config.num_heads,
                 max_seq_length,
                 rope_cache_length + self.config.head_dim - self.config.rope_n_elem,
             )
@@ -253,7 +255,7 @@ class GIVTModel(nn.Module):
         return self._max_seq_length
 
     @max_seq_length.setter
-    def max_seq_length(self, value: int) -> None:
+    def max_seq_length(self, value: int):
         """
         When doing inference, the sequences used might be shorter than the model's context length.
         This allows setting a smaller number to avoid allocating unused memory
@@ -276,11 +278,11 @@ class GIVTModel(nn.Module):
         # the mask and kv cache size will get updated on `set_kv_cache`. we cannot update it here because we don't know
         # if the kv cache is expected
 
-    def reset_parameters(self) -> None:
+    def reset_parameters(self):
         # Trigger resetting the rope-cache
         self.max_seq_length = self.config.block_size
 
-    def _init_weights(self, module: nn.Module) -> None:
+    def _init_weights(self, module: nn.Module):
         """Meant to be used with `gpt.apply(gpt._init_weights)`."""
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -304,7 +306,7 @@ class GIVTModel(nn.Module):
         rope_cache_length: int | None = None,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
-    ) -> None:
+    ):
         if rope_cache_length is None:
             rope_cache_length = self.cos.size(-1)
         max_seq_length = self.max_seq_length
@@ -320,14 +322,14 @@ class GIVTModel(nn.Module):
             # for the kv-cache support (only during inference), we only create it in that situation
             self.mask_cache = build_mask_cache(max_seq_length, device)
 
-    def clear_kv_cache(self) -> None:
+    def clear_kv_cache(self):
         self.mask_cache = None
         for block in self.blocks:
             block.attn.kv_cache = None
 
     def forward(
         self, x: Tensor, input_pos: Tensor | None = None
-    ) -> tuple[Tensor, Tensor]:
+    ) -> torch.distributions.Normal:
         T = x.size(1)
         if self.max_seq_length < T:
             raise ValueError(
@@ -347,14 +349,15 @@ class GIVTModel(nn.Module):
 
         x = self.embed.forward(x)
         for block in self.blocks:
-            b: Block
-            x = block(x, cos, sin, mask, input_pos)
+            block: Block
+            x = block.forward(x, cos, sin, mask, input_pos)
         x = self.norm.forward(x)
         y = self.head.forward(x)
 
         y_means, y_vars = y.chunk(2, dim=-1)
         y_vars = F.softplus(y_vars) + self.config.eps
-        return y_means, y_vars
+        dist = torch.distributions.Normal(y_means.float(), y_vars.float().sqrt())
+        return dist
 
 
 """ main """
@@ -379,27 +382,99 @@ class GIVT(PreTrainedModel):
         x: Tensor,
         return_info: bool = True,
     ) -> Tensor:
-        y_means, y_vars = self.model.forward(x[:, 1:])  # (b, s, d*2)
+        dist = self.model.forward(x[:, 1:])  # (b, s, d*2)
         yhat = x[:, :-1]  # (b, s, d)
 
-        dist = torch.distributions.Normal(
-            y_means.contiguous().float(), y_vars.contiguous().float().sqrt()
-        )
 
         # Compute the negative log likelihood loss
         loss = -dist.log_prob(yhat.contiguous().float()).float().mean()
 
         info = None
         if return_info:
+            y_vars = dist.variance
             info = dict(variance=y_vars.mean().item())
 
         return GIVTTrainingOutput(loss=loss, info=info)
 
-    # TODO
+
+    def sample(
+        self,
+        dist: torch.distributions.Normal,
+        temperature: float,
+    ) -> Tensor:
+
+        out = dist.sample()[0, [-1], :]
+        return out
+
+
+    def next_token(
+        self,
+        input_pos: Tensor,
+        x: Tensor,
+        **kwargs
+    ) -> Tensor:
+        dist = self.model.forward(x, input_pos)
+        next = self.sample(dist, **kwargs)
+        return next.to(dtype=x.dtype)
+
+
+    @torch.inference_mode()
     def generate(
         self,
-        prompt: Tensor,
+        audio_prompt: Tensor, # (s, d)
+        max_returned_tokens: int,
         temperature: float = 0.95,
-        cfg_scale: float = 0.4,
+        compile: bool = False,
+        show_progress: bool = True
     ) -> Tensor:
-        pass
+        """Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
+
+        The implementation of this function is modified from A. Karpathy's nanoGPT.
+
+        Args:
+            audio_prompt: Tensor of shape (T) with indices of the prompt sequence.
+            max_returned_tokens: The maximum number of tokens to return (given plus generated).
+            temperature: Scales the predicted logits by 1 / temperature.
+        """
+        self.model.eval()
+
+        self.model.max_seq_length = max_returned_tokens
+
+        # with device and dtype
+        with torch.device(audio_prompt.device):
+            self.model.set_kv_cache(batch_size=1)
+            
+
+        if compile:
+            torch._dynamo.config.automatic_dynamic_shapes = True
+            torch._inductor.config.triton.unique_kernel_names = True
+            torch._inductor.config.coordinate_descent_tuning = True
+            global next_token
+            self.next_token = torch.compile(self.next_token, mode="reduce-overhead")
+
+
+
+        T = audio_prompt.size(0)
+        assert max_returned_tokens > T
+        if self.model.max_seq_length < max_returned_tokens - 1:
+            # rolling the kv cache based on the `input_pos` value would be necessary. However, doing so would introduce a
+            # data dependency on the `input_pos` tensor and impact model compilation. Since this setting is uncommon, we do
+            # not support it to avoid negatively impacting the overall speed
+            raise NotImplementedError(f"max_seq_length {self.model.max_seq_length} needs to be >= {max_returned_tokens - 1}")
+
+        device = audio_prompt.device
+        tokens = [audio_prompt]
+        input_pos = torch.tensor([T], device=device)
+        # prefill
+        token = self.next_token(
+            torch.arange(0, T, device=device), audio_prompt.unsqueeze(0), temperature=temperature
+        ).clone()
+        tokens.append(token)
+
+        pbar = tqdm(range(2, max_returned_tokens - T + 1), disable=not show_progress)
+        for _ in pbar:
+            token = self.next_token(input_pos, token.unsqueeze(0), temperature=temperature).clone()
+            tokens.append(token)
+            input_pos = input_pos.add_(1)
+        return torch.cat(tokens)
+

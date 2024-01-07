@@ -22,17 +22,17 @@ from givt_pytorch import GIVT
 # load pretrained checkpoint
 model = GIVT.from_pretrained('elyxlz/givt-test')
 
-latents = torch.randn((4, 500, 32)) # audio vae latents (bs, seq_len, size)
+latents = torch.randn((4, 500, 32)) # vae latents (bs, seq_len, size)
 loss = model.forward(latents) # NLL Loss
 
-prompt = torch.randn((4, 50, 32))
+prompt = torch.randn((50, 32)) # no batched inference implemented
 generated = model.generate(
-    prompt=prompt,
+    prompt=prompt, 
     max_len=500,
     temperature=0.95,
     cfg_scale=0.5,
     temperature=0.95,
-)
+) # (500, 32)
 ```
 
 ## Training
@@ -76,7 +76,7 @@ accelerate launch train.py {config_name}
   url={https://github.com/Lightning-AI/lit-gpt},
   year={2024}
 
-@misc{touvron2020training,
+@misc{tschannen2023givt,
     title   = {GIVT: Generative Infinite-Vocabulary Transformers}, 
     author  = {Michael Tschannen, Cian Eastwood, Fabian Mentzer},
     year    = {2023},
