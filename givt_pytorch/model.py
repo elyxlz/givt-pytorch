@@ -155,7 +155,9 @@ class Attention(nn.Module):
 
         # q, k, v = map(lambda t: rearrange(t, "b s nh hd -> b nh s hd"))
 
-        x = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        x = F.scaled_dot_product_attention(
+            q, k, v, attn_mask=mask, is_causal=mask is None
+        )
         x = rearrange(x, "b nh s hd -> b s (nh hd)")
 
         x = self.o_proj.forward(x)
@@ -324,7 +326,9 @@ class GIVTModel(nn.Module):
         for block in self.blocks:
             block.attn.kv_cache = None
 
-    def forward(self, x: Tensor, input_pos: Tensor | None = None) -> tuple[Tensor, Tensor]:
+    def forward(
+        self, x: Tensor, input_pos: Tensor | None = None
+    ) -> tuple[Tensor, Tensor]:
         T = x.size(1)
         if self.max_seq_length < T:
             raise ValueError(
