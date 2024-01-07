@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import os
 from tqdm import tqdm
 import dotenv
@@ -51,7 +51,7 @@ class TrainConfig:
     wandb_project_name: str = "givt-pytorch"
 
     def to_dict(self):
-        return vars(self)
+        return asdict(self)
 
 
 class Trainer:
@@ -133,6 +133,7 @@ class Trainer:
             last_epoch=train_config.last_epoch,
         )
         self.accelerator.register_for_checkpointing(self.scheduler)
+        self.scheduler = self.accelerator.prepare(self.scheduler)
 
         # dataloaders
         self.train_loader = DataLoader(
@@ -149,6 +150,10 @@ class Trainer:
             num_workers=train_config.num_workers,
             pin_memory=train_config.pin_memory,
             shuffle=False,
+        )
+
+        self.train_loader, self.val_loader = self.accelerator.prepare(
+            self.train_loader, self.val_loader
         )
 
         if train_config.resume_from_ckpt is not None:

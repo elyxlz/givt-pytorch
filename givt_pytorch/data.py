@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset
 
+
 class DummyDataset(Dataset):
     def __init__(
         self,
@@ -15,6 +16,4 @@ class DummyDataset(Dataset):
         return 10000
 
     def __getitem__(self, idx: int):
-        return dict(
-            x=torch.randn(self.seq_len, self.dim)
-        )
+        return dict(x=torch.randn(self.seq_len, self.dim))

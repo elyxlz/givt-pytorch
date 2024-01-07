@@ -15,6 +15,7 @@ from .config import GIVTConfig
 
 """ debug """
 
+
 def debug_func(func):
     """Decorator to debug a function when error is encountered."""
 
@@ -139,7 +140,10 @@ class Attention(nn.Module):
         q, k, v = self.qkv_proj.forward(x).chunk(3, dim=-1)  # (b, s, d)
         q, k, v = map(
             lambda t: rearrange(
-                t, "b s (nh hd) -> b nh s hd ", nh=self.config.num_heads, hd=self.config.head_dim
+                t,
+                "b s (nh hd) -> b nh s hd ",
+                nh=self.config.num_heads,
+                hd=self.config.head_dim,
             ),
             (q, k, v),
         )
@@ -172,7 +176,12 @@ class Attention(nn.Module):
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ) -> KVCache:
-        v_shape = (batch_size, self.config.num_heads, max_seq_length, self.config.head_dim)
+        v_shape = (
+            batch_size,
+            self.config.num_heads,
+            max_seq_length,
+            self.config.head_dim,
+        )
         if rope_cache_length is None:
             if self.config.rotary_percentage != 1.0:
                 raise TypeError(
@@ -396,36 +405,27 @@ class GIVT(PreTrainedModel):
 
         return GIVTTrainingOutput(loss=loss, info=info)
 
-
     def sample(
         self,
         dist: torch.distributions.Normal,
         temperature: float,
     ) -> Tensor:
-
         out = dist.sample()[0, [-1], :]
         return out
 
-
-    def next_token(
-        self,
-        input_pos: Tensor,
-        x: Tensor,
-        **kwargs
-    ) -> Tensor:
+    def next_token(self, input_pos: Tensor, x: Tensor, **kwargs) -> Tensor:
         dist = self.model.forward(x, input_pos)
         next = self.sample(dist, **kwargs)
         return next.to(dtype=x.dtype)
 
-
     @torch.inference_mode()
     def generate(
         self,
-        audio_prompt: Tensor, # (s, d)
+        audio_prompt: Tensor,  # (s, d)
         max_returned_tokens: int,
         temperature: float = 0.95,
         compile: bool = False,
-        show_progress: bool = True
+        show_progress: bool = True,
     ) -> Tensor:
         """Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
 
@@ -442,7 +442,7 @@ class GIVT(PreTrainedModel):
 
         with torch.device(audio_prompt.device):
             self.model.set_kv_cache(batch_size=1)
-            
+
         if compile:
             torch._dynamo.config.automatic_dynamic_shapes = True
             torch._inductor.config.triton.unique_kernel_names = True
@@ -453,21 +453,26 @@ class GIVT(PreTrainedModel):
         T = audio_prompt.size(0)
         assert max_returned_tokens > T
         if self.model.max_seq_length < max_returned_tokens - 1:
-            raise NotImplementedError(f"max_seq_length {self.model.max_seq_length} needs to be >= {max_returned_tokens - 1}")
+            raise NotImplementedError(
+                f"max_seq_length {self.model.max_seq_length} needs to be >= {max_returned_tokens - 1}"
+            )
 
         device = audio_prompt.device
         tokens = [audio_prompt]
         input_pos = torch.tensor([T], device=device)
         # prefill
         token = self.next_token(
-            torch.arange(0, T, device=device), audio_prompt.unsqueeze(0), temperature=temperature
+            torch.arange(0, T, device=device),
+            audio_prompt.unsqueeze(0),
+            temperature=temperature,
         ).clone()
         tokens.append(token)
 
         pbar = tqdm(range(2, max_returned_tokens - T + 1), disable=not show_progress)
         for _ in pbar:
-            token = self.next_token(input_pos, token.unsqueeze(0), temperature=temperature).clone()
+            token = self.next_token(
+                input_pos, token.unsqueeze(0), temperature=temperature
+            ).clone()
             tokens.append(token)
             input_pos = input_pos.add_(1)
         return torch.cat(tokens)
-

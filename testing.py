@@ -1,16 +1,18 @@
 import torch
 
+torch.set_float32_matmul_precision("high")
+
 from givt_pytorch import GIVT, GIVTConfig
 
-model = GIVT(GIVTConfig(block_size=2000))
+model: GIVT = GIVT(GIVTConfig(block_size=2000)).cuda()
 
-latent = torch.randn(1, 50, 16)
+latent = torch.randn(1, 50, 16).cuda()
 loss = model.forward(latent).loss
 
-generated = model.generate(
-    latent[0],
-    max_returned_tokens=1000,
-    temperature=1.0,
-)
 
-import pdb; pdb.set_trace()
+for _ in range(2):
+    generated = model.generate(
+        latent[0], max_returned_tokens=1000, temperature=1.0, compile=True
+    )
+
+print(generated.shape)
