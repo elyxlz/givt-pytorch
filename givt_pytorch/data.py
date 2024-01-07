@@ -1,13 +1,20 @@
+import torch
 from torch.utils.data import Dataset
 
-
-class DemoDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
+class DummyDataset(Dataset):
+    def __init__(
+        self,
+        dim: int = 16,
+        seq_len: int = 512,
+    ):
+        super().__init__()
+        self.dim = dim
+        self.seq_len = seq_len
 
     def __len__(self):
-        return len(self.data)
+        return 10000
 
-    def __getitem__(self, index):
-        sample = self.data[index]
-        return sample
+    def __getitem__(self, idx: int):
+        return dict(
+            latents=torch.randn(self.seq_len, self.dim)
+        )
