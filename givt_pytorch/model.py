@@ -153,8 +153,6 @@ class Attention(nn.Module):
                 raise TypeError("You need to call `model.set_kv_cache()`")
             k, v = self.kv_cache(input_pos, k, v)
 
-        # q, k, v = map(lambda t: rearrange(t, "b s nh hd -> b nh s hd"))
-
         x = F.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, is_causal=mask is None
         )
@@ -205,8 +203,9 @@ class Mlp(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         residual = x
         x = self.norm.forward(x)
-        out = self.fc3.forward(F.silu(self.fc1.forward(x)) * self.fc2.forward(x))
-        return out + residual
+        x = F.silu(self.fc1.forward(x)) * self.fc2.forward(x)
+        x = self.fc3.forward(x)
+        return x + residual
 
 
 class Block(nn.Module):
@@ -354,7 +353,7 @@ class GIVTModel(nn.Module):
         y = self.head.forward(x)
 
         y_means, y_vars = y.chunk(2, dim=-1)
-        y_vars = F.softplus(y_vars) + 1e-8
+        y_vars = F.softplus(y_vars) + self.config.eps
         return y_means, y_vars
 
 

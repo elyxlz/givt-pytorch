@@ -65,3 +65,20 @@ And then run the training.
 ```sh
 accelerate launch train.py {config_name}
 ```
+
+## References
+```bibtex
+@misc{litgpt2024,
+  title={lit-gpt on GitHub},
+  url={https://github.com/Lightning-AI/lit-gpt},
+  year={2024}
+
+@misc{touvron2020training,
+    title   = {GIVT: Generative Infinite-Vocabulary Transformers}, 
+    author  = {Michael Tschannen, Cian Eastwood, Fabian Mentzer},
+    year    = {2023},
+    eprint  = {2312.02116},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
+}
+```

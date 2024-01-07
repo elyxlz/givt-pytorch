@@ -12,6 +12,7 @@ class GIVTConfig(PretrainedConfig):
         num_heads: int = 4,
         num_layers: int = 2,
         block_size: int = 128,
+        eps: float = 1e-8,
         rope_base: int = 1000000,
         rope_rotary_percentage: float = 1.0,
         rope_condense_ratio: float = 4.0,
@@ -25,6 +26,7 @@ class GIVTConfig(PretrainedConfig):
         self.num_heads = num_heads
         self.num_layers = num_layers
         self.block_size = block_size
+        self.eps = eps
         self.rope_base = rope_base
         self.rope_condense_ratio = rope_condense_ratio
         self.rope_rotary_percentage = rope_rotary_percentage
