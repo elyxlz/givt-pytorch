@@ -83,6 +83,7 @@ class Trainer:
         self.accelerator = Accelerator(
             mixed_precision=train_config.mixed_precision,
             cpu=train_config.cpu,
+            log_with="wandb" if train_config.use_wandb else None,
         )
 
         # wandb
@@ -92,6 +93,7 @@ class Trainer:
             assert (
                 train_config.wandb_project_name is not None
             ), "Please provide a wandb project name"
+            self.accelerator.print(f"Logging to wandb project {train_config.wandb_project_name}")
             self.accelerator.init_trackers(
                 project_name=train_config.wandb_project_name,
                 config=config,
@@ -185,21 +187,37 @@ class Trainer:
         out = self.model.forward(**batch)
         loss = out.loss
         self.accelerator.backward(loss)
-        self.accelerator.clip_grad_norm_(
+        grad_norm = self.accelerator.clip_grad_norm_(
             self.model.parameters(), self.train_config.grad_norm
         )  # Gradient clipping
         self.optimizer.step()
         self.scheduler.step()
         self.optimizer.zero_grad()
+
+        # update ema
+        if self.train_config.ema is not None:
+            self.model_ema.update()
+
         if self.time_to_log():
-            self.accelerator.log(out.info, step=self.completed_steps)
             self.accelerator.log({"train_loss": loss}, step=self.completed_steps)
             self.epoch_bar.set_postfix({"loss": loss.item()})
+            self.accelerator.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.completed_steps)
+            self.accelerator.log(
+                {"grad_norm": grad_norm}, step=self.completed_steps
+            )
+
+            # custom
+            self.accelerator.log(out.info, step=self.completed_steps)
+            # log ema decay
+            if self.train_config.ema is not None:
+                self.accelerator.log(
+                    {"ema_decay": self.model_ema.get_current_decay()}, step=self.completed_steps
+                )
 
     @torch.no_grad()
     def validation(self, val_loader):
         """Validation loop"""
-        model = self.model_ema if self.model_ema is not None else self.model
+        model = self.model_ema.ema_model if self.model_ema is not None else self.model
         model.eval()
         val_loss = 0.0
         for batch in tqdm(val_loader, desc="Validation"):
@@ -241,7 +259,7 @@ class Trainer:
 
                 # push to hub
                 if self.time_to_push():
-                    model = self.model_ema if self.model_ema is not None else self.model
+                    model = self.model_ema.ema_model if self.model_ema is not None else self.model
                     self.push(model)
 
     def time_to_save(self) -> bool:
@@ -271,7 +289,9 @@ class Trainer:
         val: bool = (
             self.train_config.val_every is not None
             and self.completed_steps % self.train_config.val_every == 0
+            and self.completed_steps >= 0
         )
+
         return val
 
     def save(self) -> None:
@@ -322,7 +342,7 @@ class Trainer:
                 unwrapped_model: GIVT = self.accelerator.unwrap_model(model)
 
                 unwrapped_model.push_to_hub(
-                    self.train_config.hub_namespace,
+                    self.train_config.name,
                     commit_message=f"Run {self.run_id}, step {self.completed_steps}",
                     private=True,
                     token=os.environ["HUGGINGFACE_TOKEN"],

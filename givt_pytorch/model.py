@@ -297,8 +297,6 @@ class GIVTModel(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def rope_cache(self, device: torch.device | None = None) -> tuple[Tensor, Tensor]:
         return build_rope_cache(
@@ -386,6 +384,9 @@ class GIVT(PreTrainedModel):
         super().__init__(config)
 
         self.model = GIVTModel(config)
+        
+        # init weights
+        self.model.apply(self.model._init_weights)
 
     def forward(
         self,
