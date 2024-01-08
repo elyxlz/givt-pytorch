@@ -6,7 +6,7 @@ import dotenv
 dotenv.load_dotenv()
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from accelerate import Accelerator
 from transformers import PreTrainedModel, get_inverse_sqrt_schedule
 from ema_pytorch import EMA
@@ -29,6 +29,7 @@ class TrainConfig:
     batch_size: int = 2
     num_workers: int = 4
     pin_memory: bool = True
+    val_size: int = 1000
 
     # optimizer
     lr: float = 1e-4
@@ -148,9 +149,12 @@ class Trainer:
         self.accelerator.register_for_checkpointing(self.scheduler)
         self.scheduler = self.accelerator.prepare(self.scheduler)
 
+        split = [len(dataset) - train_config.val_size, train_config.val_size]
+        train_dataset, val_dataset = random_split(dataset, split)
+
         # dataloaders
         self.train_loader = DataLoader(
-            dataset,
+            train_dataset,
             batch_size=train_config.batch_size,
             num_workers=train_config.num_workers,
             pin_memory=train_config.pin_memory,
@@ -158,7 +162,7 @@ class Trainer:
         )
 
         self.val_loader = DataLoader(
-            dataset,
+            val_dataset,
             batch_size=train_config.batch_size,
             num_workers=train_config.num_workers,
             pin_memory=train_config.pin_memory,
