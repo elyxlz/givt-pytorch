@@ -401,7 +401,7 @@ class GIVT(PreTrainedModel):
         info = None
         if return_info:
             y_vars = dist.variance
-            info = dict(variance=y_vars.mean().item())
+            info = dict(variances=y_vars.mean().item(), means=dist.mean.mean().item())
 
         return GIVTTrainingOutput(loss=loss, info=info)
 

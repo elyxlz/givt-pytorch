@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from transformers import PreTrainedModel, get_inverse_sqrt_schedule
+from ema_pytorch import EMA
 import wandb
 
 from .model import GIVT
@@ -21,6 +22,7 @@ class TrainConfig:
     name: str = "givt-test"
     mixed_precision: str = "no"  # "no", "fp16", "bf16"
     gradient_checkpointing: bool = False
+    ema: float | None = None
     cpu: bool = False
 
     # dataset
@@ -44,9 +46,9 @@ class TrainConfig:
     # logging and checkpointing
     log_every: int = 100
     save_every: int = 1000
-    push_every: int = None
-    val_every: int = None
-    resume_from_ckpt: str = None
+    push_every: int | None = None
+    val_every: int | None = None
+    resume_from_ckpt: str | None = None
     use_wandb: bool = False
     wandb_project_name: str = "givt-pytorch"
 
@@ -105,6 +107,17 @@ class Trainer:
         # model
         self.model: PreTrainedModel = self.accelerator.prepare(model)
         self.model.train()
+
+        # ema
+        self.model_ema = None
+        if train_config.ema is not None:
+            self.model_ema = EMA(
+                self.model,
+                power=train_config.ema,
+                karras_beta=True,
+                include_online_model=False,
+            )
+            self.accelerator.register_for_checkpointing(self.model_ema.ema_model)
 
         if train_config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
@@ -165,7 +178,8 @@ class Trainer:
         self.accelerator.print("Trainable parameters: ", trainable_params / 1e6, "M")
 
     def training_step(self, batch):
-        loss = self.model.forward(**batch).loss
+        out = self.model.forward(**batch)
+        loss = out.loss
         self.accelerator.backward(loss)
         self.accelerator.clip_grad_norm_(
             self.model.parameters(), self.train_config.grad_norm
@@ -174,19 +188,21 @@ class Trainer:
         self.scheduler.step()
         self.optimizer.zero_grad()
         if self.time_to_log():
+            self.accelerator.log(out.info, step=self.completed_steps)
             self.accelerator.log({"train_loss": loss}, step=self.completed_steps)
             self.epoch_bar.set_postfix({"loss": loss.item()})
 
     @torch.no_grad()
     def validation(self, val_loader):
         """Validation loop"""
-        self.model.eval()
+        model = self.model_ema if self.model_ema is not None else self.model
+        model.eval()
         val_loss = 0.0
         for batch in tqdm(val_loader, desc="Validation"):
-            loss = self.model.forward(**batch).loss
+            loss = model.forward(**batch).loss
             val_loss += loss.item() / len(val_loader)
         self.accelerator.log({"val_loss": loss})
-        self.model.train()
+        model.train()
 
     def train(self):
         """Basic training loop"""
@@ -221,7 +237,8 @@ class Trainer:
 
                 # push to hub
                 if self.time_to_push():
-                    self.push(self.model)
+                    model = self.model_ema if self.model_ema is not None else self.model
+                    self.push(model)
 
     def time_to_save(self) -> bool:
         save: bool = (
