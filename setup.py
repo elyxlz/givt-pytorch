@@ -10,8 +10,11 @@ setup(
     long_description_content_type = 'text/markdown',
     url="https://github.com/elyxlz/givt-pytorch",
     classifiers=[
-        "Framework :: Pytorch",
-        "Programming Language :: Python :: 3",
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Developers',
+        'Topic :: Scientific/Engineering :: Artificial Intelligence',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 3.6',
     ],
     python_requires=">=3.9",
     packages=find_packages(),
