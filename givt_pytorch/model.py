@@ -407,7 +407,7 @@ class GIVT(PreTrainedModel):
         return GIVTTrainingOutput(loss=loss, info=info)
 
     def sample(
-        self,j
+        self,
         dist: torch.distributions.Normal,
         temperature: float,
     ) -> Tensor:
