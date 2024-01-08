@@ -1,15 +1,12 @@
 from setuptools import setup, find_packages
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
-
 setup(
     name="givt_pytorch",
-    version="0.0.2",
+    version="0.0.3",
     author="Elio Pascarelli",
     author_email="elio@pascarelli.com",
     description="A partial implementation of Generative Infinite Vocabulary Transformer (GIVT) from Google Deepmind, in PyTorch.",
-    long_description=long_description,
+    long_description=open('README.md').read(),
     long_description_content_type = 'text/markdown',
     url="https://github.com/elyxlz/givt-pytorch",
     classifiers=[
