@@ -6,7 +6,8 @@ setup(
     author="Elio Pascarelli",
     author_email="elio@pascarelli.com",
     description="A partial implementation of Generative Infinite Vocabulary Transformer (GIVT) from Google Deepmind, in PyTorch.",
-    url="",
+    long_description_content_type = 'text/markdown',
+    url="https://github.com/elyxlz/givt-pytorch",
     classifiers=[
         "Framework :: Pytorch",
         "Programming Language :: Python :: 3",
