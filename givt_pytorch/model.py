@@ -362,9 +362,9 @@ class GIVTModel(nn.Module):
         x = self.norm.forward(x)
         y = self.head.forward(x)
 
-        y_means, y_vars = y.chunk(2, dim=-1)
-        y_vars = F.softplus(y_vars) + self.config.eps
-        dist = torch.distributions.Normal(y_means.float(), y_vars.float().sqrt())
+        y_means, y_stds = y.chunk(2, dim=-1)
+        y_stds = F.softplus(y_stds) + self.config.eps
+        dist = torch.distributions.Normal(y_means.float(), y_stds.float())
         return dist
 
 
@@ -401,13 +401,13 @@ class GIVT(PreTrainedModel):
 
         info = None
         if return_info:
-            y_vars = dist.variance
-            info = dict(variances=y_vars.mean().item(), means=dist.mean.mean().item())
+            y_stds = dist.stddev
+            info = dict(stds=y_stds.mean().item(), means=dist.mean.mean().item())
 
         return GIVTTrainingOutput(loss=loss, info=info)
 
     def sample(
-        self,
+        self,j
         dist: torch.distributions.Normal,
         temperature: float,
     ) -> Tensor:
