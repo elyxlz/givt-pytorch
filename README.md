@@ -3,7 +3,7 @@ A partial implementation of [Generative Infinite Vocabulary Transformer (GIVT)](
 
 This repo only implements the causal version of GIVT, and does away with the k mixtures predictions or the use of the full covariance matrix, as for most purposes they did not yield significantly better results.
 
-The decoder transformer implementation is also modernized, adopting a Llama style architecture with gated MLPs, SilU, RMSNorm, and RoPE.
+The decoder transformer implementation is also modernized, adopting a Llama style architecture with gated MLPs, SiLU, RMSNorm, and RoPE.
 
 ## Install
 ```sh
@@ -38,7 +38,7 @@ generated = model.generate(
 
 Define a config file in `configs/`, such as this one:
 ```py
-from package_name import (
+from givt_pytorch import (
     GIVT,
     GIVTConfig,
     DummyDataset,
