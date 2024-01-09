@@ -25,6 +25,6 @@ setup(
         "einops",
         "ema-pytorch>=0.3.2",
     ],
-    extras_require={"train": ["accelerate", "wandb", "tqdm"]},
+    extras_require={"train": ["accelerate", "wandb", "tqdm", "datasets"]},
     license="MIT",
 )
