@@ -1,6 +1,3 @@
-import functools
-import pdb
-from pdb import set_trace as bp
 from dataclasses import dataclass
 from tqdm import tqdm
 
@@ -11,25 +8,6 @@ from einops import rearrange
 from transformers import PreTrainedModel
 
 from .config import GIVTConfig
-
-
-""" debug """
-
-
-def debug_func(func):
-    """Decorator to debug a function when error is encountered."""
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception:
-            print(
-                "Error encountered! Starting debug session from the beginning of the function."
-            )
-            pdb.runcall(func, *args, **kwargs)
-
-    return wrapper
 
 
 def build_rope_cache(
@@ -249,15 +227,19 @@ class GIVTModel(nn.Module):
 
         self.embed = nn.Linear(
             config.input_dim, config.hidden_dim, bias=False
-        )  # TODO try with bias
+        )
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_layers)])
         self.norm = RMSNorm(config.hidden_dim)
         self.head = nn.Linear(
             config.hidden_dim, config.input_dim * 2, bias=False
         )  # means and variances
 
+        self.bos = nn.Parameter(Tensor(config.input_dim))
+
         self.max_seq_length = config.block_size
         self.mask_cache: Tensor | None = None
+
+        self.initialize_weights()
 
     @property
     def max_seq_length(self) -> int:
@@ -291,12 +273,25 @@ class GIVTModel(nn.Module):
         # Trigger resetting the rope-cache
         self.max_seq_length = self.config.block_size
 
-    def _init_weights(self, module: nn.Module):
-        """Meant to be used with `gpt.apply(gpt._init_weights)`."""
-        if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
+    def initialize_weights(self):
+        def basic_init(module: nn.Module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight, gain=1)
+                if module.bias is not None:
+                    torch.nn.init.zeros_(module.bias)
+
+        self.apply(basic_init)
+
+        # zero head
+        torch.nn.init.zeros_(self.head.weight)
+
+        # zero o_proj and fc3
+        for m in self.named_modules():
+            if "o_proj" in m[0] or "fc3" in m[0]:
+                torch.nn.init.zeros_(m[1].weight)
+
+        # bos
+        torch.nn.init.normal_(self.bos, mean=0.0, std=0.02)
 
     def rope_cache(self, device: torch.device | None = None) -> tuple[Tensor, Tensor]:
         return build_rope_cache(
@@ -335,8 +330,10 @@ class GIVTModel(nn.Module):
             block.attn.kv_cache = None
 
     def forward(
-        self, x: Tensor, input_pos: Tensor | None = None
-    ) -> torch.distributions.Normal:
+        self,
+        x: Tensor,
+        input_pos: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
         T = x.size(1)
         if self.max_seq_length < T:
             raise ValueError(
@@ -359,70 +356,92 @@ class GIVTModel(nn.Module):
         for block in self.blocks:
             block: Block
             x = block.forward(x, cos, sin, mask, input_pos)
-        x = self.norm.forward(x)
+        x, g = self.norm.forward(x)
         y = self.head.forward(x)
 
         y_means, y_stds = y.chunk(2, dim=-1)
         y_stds = F.softplus(y_stds) + self.config.eps
-        dist = torch.distributions.Normal(y_means.float(), y_stds.float())
-        return dist
+
+        return y_means, y_stds
 
 
 """ main """
 
 
 @dataclass
-class GIVTTrainingOutput:
+class EVE5TrainingOutput:
     loss: Tensor
     info: dict | None = None
 
 
 class GIVT(PreTrainedModel):
+    """high level api"""
+
     config_class = GIVTConfig
 
     def __init__(self, config: GIVTConfig):
         super().__init__(config)
 
-        self.model = GIVTModel(config)
-        
-        # init weights
-        self.model.apply(self.model._init_weights)
+        self.model = GIVTModel(config)        
 
     def forward(
         self,
         x: Tensor,
         return_info: bool = True,
     ) -> Tensor:
-        dist = self.model.forward(x[:, 1:])  # (b, s, d*2)
-        yhat = x[:, :-1]  # (b, s, d)
+        bs = x.size(0)
+
+        inputs = torch.cat(
+            (
+                self.model.bos.unsqueeze(0)
+                .expand(bs, self.config.input_dim)
+                .unsqueeze(1),
+                x,
+            ),
+            dim=1,
+        )[..., :-1, :]  # add bos / shift
+        y_means, y_stds = self.model.forward(inputs)  # (b, s, d*2)
+        yhat = x.clone()
 
         # Compute the negative log likelihood loss
-        loss = -dist.log_prob(yhat.contiguous().float()).float().mean()
+        loss = F.gaussian_nll_loss(
+            input=y_means.contiguous().float(),
+            target=yhat.contiguous().float(),
+            var=(y_stds**2).contiguous().float(),
+            eps=self.config.eps,
+            reduction="mean",
+        )
 
         info = None
         if return_info:
-            y_stds = dist.stddev
-            info = dict(stds=y_stds.mean().item(), means=dist.mean.mean().item())
+            info = dict(
+                means=y_means.clone().mean().item(), stds=y_stds.clone().mean().item()
+            )
 
-        return GIVTTrainingOutput(loss=loss, info=info)
+        return EVE5TrainingOutput(loss=loss, info=info)
 
     def sample(
         self,
-        dist: torch.distributions.Normal,
-        temperature: float,
+        means: Tensor,
+        stds: Tensor,
+        temperature: float = 0.95,
     ) -> Tensor:
+        stds *= temperature
+        dist = torch.distributions.Normal(means, stds)
         out = dist.sample()[0, [-1], :]
         return out
 
-    def next_token(self, input_pos: Tensor, x: Tensor, **kwargs) -> Tensor:
-        dist = self.model.forward(x, input_pos)
-        next = self.sample(dist, **kwargs)
+    def next_token(
+        self, input_pos: Tensor, x: Tensor, norm_cond: Tensor, **kwargs
+    ) -> Tensor:
+        y_means, y_stds = self.model.forward(x, norm_cond, input_pos)
+        next = self.sample(y_means, y_stds, **kwargs)
         return next.to(dtype=x.dtype)
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def generate(
         self,
-        audio_prompt: Tensor,  # (s, d)
+        audio_prompt: Tensor | None,  # (s, d)
         max_returned_tokens: int,
         temperature: float = 0.95,
         compile: bool = False,
@@ -433,15 +452,18 @@ class GIVT(PreTrainedModel):
         The implementation of this function is modified from A. Karpathy's nanoGPT.
 
         Args:
-            audio_prompt: Tensor of shape (T) with indices of the prompt sequence.
+            audio_prompt: Tensor of shape (s, d) with indices of the prompt sequence.
             max_returned_tokens: The maximum number of tokens to return (given plus generated).
-            temperature: Scales the predicted logits by 1 / temperature.
+            temperature: Scales stds
         """
-        self.model.eval()
+        assert audio_prompt.dim() == 2 if audio_prompt is not None else True
 
+        device = audio_prompt.device if audio_prompt is not None else next(self.parameters()).device
+
+        self.model.eval()
         self.model.max_seq_length = max_returned_tokens
 
-        with torch.device(audio_prompt.device):
+        with torch.device(device):
             self.model.set_kv_cache(batch_size=1)
 
         if compile:
@@ -451,29 +473,41 @@ class GIVT(PreTrainedModel):
             global next_token
             self.next_token = torch.compile(self.next_token, mode="reduce-overhead")
 
-        T = audio_prompt.size(0)
+        # add bos
+        input_seq = self.model.bos.expand(1, -1)
+
+        if audio_prompt is not None:
+            input_seq = torch.cat((input_seq, audio_prompt), dim=0)
+
+        T = input_seq.size(0)
         assert max_returned_tokens > T
         if self.model.max_seq_length < max_returned_tokens - 1:
             raise NotImplementedError(
                 f"max_seq_length {self.model.max_seq_length} needs to be >= {max_returned_tokens - 1}"
             )
 
-        device = audio_prompt.device
-        tokens = [audio_prompt]
+        tokens = [input_seq]
         input_pos = torch.tensor([T], device=device)
         # prefill
         token = self.next_token(
             torch.arange(0, T, device=device),
-            audio_prompt.unsqueeze(0),
+            input_seq.unsqueeze(0),
             temperature=temperature,
         ).clone()
         tokens.append(token)
 
-        pbar = tqdm(range(2, max_returned_tokens - T + 1), disable=not show_progress)
+        pbar = tqdm(range(2, max_returned_tokens - T + 2), disable=not show_progress)
         for _ in pbar:
             token = self.next_token(
-                input_pos, token.unsqueeze(0), temperature=temperature
+                input_pos,
+                token.unsqueeze(0),
+                temperature=temperature,
             ).clone()
             tokens.append(token)
             input_pos = input_pos.add_(1)
-        return torch.cat(tokens)
+
+        out = torch.cat(tokens)[1:]  # remove bos
+
+        # clear kv cache
+        self.model.clear_kv_cache()
+        return out

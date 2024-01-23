@@ -4,7 +4,6 @@ from datasets import Dataset as HFDataset
 from datasets import load_dataset
 
 
-
 class DummyDataset(Dataset):
     def __init__(
         self,
@@ -20,31 +19,38 @@ class DummyDataset(Dataset):
 
     def __getitem__(self, idx: int):
         return dict(x=torch.randn(self.seq_len, self.dim))
-    
+
 
 class StockDataset(Dataset):
     def __init__(
         self,
         block_size: int,
+        overfit: int | None = None,
     ):
         super().__init__()
 
         self.block_size = block_size
 
         # remove nones
-        self.dataset: HFDataset = load_dataset("edarchimbaud/timeseries-1m-stocks")['train']
-        self.dataset = self.dataset.filter(lambda x: x['open'] is not None)
-        self.dataset = self.dataset.remove_columns([i for i in self.dataset.column_names if i != 'open'])
+        self.dataset: HFDataset = load_dataset("edarchimbaud/timeseries-1m-stocks")[
+            "train"
+        ]
+        self.dataset = self.dataset.filter(lambda x: x["open"] is not None)
+        self.dataset = self.dataset.remove_columns(
+            [i for i in self.dataset.column_names if i != "open"]
+        )
+
+        if overfit is not None:
+            self.dataset = self.dataset.select(range(overfit * block_size))
 
     def __len__(self):
         return len(self.dataset) // self.block_size
 
     def __getitem__(self, idx: int):
-
-        item = self.dataset[idx*self.block_size:(idx+1)*self.block_size]['open']
+        item = self.dataset[idx * self.block_size : (idx + 1) * self.block_size]["open"]
         if item is None:
             return self.__getitem__(torch.randint(0, len(self), (1,)).item())
-        
+
         item = torch.tensor(item).unsqueeze(-1)
 
         return dict(x=item)

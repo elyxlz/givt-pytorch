@@ -93,7 +93,9 @@ class Trainer:
             assert (
                 train_config.wandb_project_name is not None
             ), "Please provide a wandb project name"
-            self.accelerator.print(f"Logging to wandb project {train_config.wandb_project_name}")
+            self.accelerator.print(
+                f"Logging to wandb project {train_config.wandb_project_name}"
+            )
             self.accelerator.init_trackers(
                 project_name=train_config.wandb_project_name,
                 config=config,
@@ -201,17 +203,18 @@ class Trainer:
         if self.time_to_log():
             self.accelerator.log({"train_loss": loss}, step=self.completed_steps)
             self.epoch_bar.set_postfix({"loss": loss.item()})
-            self.accelerator.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.completed_steps)
             self.accelerator.log(
-                {"grad_norm": grad_norm}, step=self.completed_steps
+                {"lr": self.scheduler.get_last_lr()[0]}, step=self.completed_steps
             )
+            self.accelerator.log({"grad_norm": grad_norm}, step=self.completed_steps)
 
             # custom
             self.accelerator.log(out.info, step=self.completed_steps)
             # log ema decay
             if self.train_config.ema is not None:
                 self.accelerator.log(
-                    {"ema_decay": self.model_ema.get_current_decay()}, step=self.completed_steps
+                    {"ema_decay": self.model_ema.get_current_decay()},
+                    step=self.completed_steps,
                 )
 
     @torch.no_grad()
@@ -259,7 +262,11 @@ class Trainer:
 
                 # push to hub
                 if self.time_to_push():
-                    model = self.model_ema.ema_model if self.model_ema is not None else self.model
+                    model = (
+                        self.model_ema.ema_model
+                        if self.model_ema is not None
+                        else self.model
+                    )
                     self.push(model)
 
     def time_to_save(self) -> bool:

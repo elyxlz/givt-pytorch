@@ -1,17 +1,19 @@
 from givt_pytorch import GIVT, GIVTConfig, Trainer, TrainConfig
 from givt_pytorch.data import StockDataset
 
-model = GIVT(GIVTConfig(
-    input_dim=1,
-    hidden_dim=1536,
-    intermediate_dim=int(1536*8/3),
-    num_layers=16,
-    num_heads=8,
-    block_size=60,
-))
+model = GIVT(
+    GIVTConfig(
+        input_dim=1,
+        hidden_dim=1536,
+        intermediate_dim=int(1536 * 8 / 3),
+        num_layers=16,
+        num_heads=8,
+        block_size=60,
+    )
+)
 
 
-dataset = StockDataset(block_size=60)
+dataset = StockDataset(block_size=60, overfit=1)
 print(len(dataset))
 
 train_config = TrainConfig(
