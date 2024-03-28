@@ -19,7 +19,7 @@ print(len(dataset))
 train_config = TrainConfig(
     name="givt-stocks-v1",
     mixed_precision="bf16",
-    ema=2/3,
+    ema=2 / 3,
     batch_size=128,
     num_workers=8,
     log_every=30,

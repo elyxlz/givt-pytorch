@@ -225,9 +225,7 @@ class GIVTModel(nn.Module):
 
         self.config = config
 
-        self.embed = nn.Linear(
-            config.input_dim, config.hidden_dim, bias=False
-        )
+        self.embed = nn.Linear(config.input_dim, config.hidden_dim, bias=False)
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_layers)])
         self.norm = RMSNorm(config.hidden_dim)
         self.head = nn.Linear(
@@ -382,7 +380,7 @@ class GIVT(PreTrainedModel):
     def __init__(self, config: GIVTConfig):
         super().__init__(config)
 
-        self.model = GIVTModel(config)        
+        self.model = GIVTModel(config)
 
     def forward(
         self,
@@ -458,7 +456,11 @@ class GIVT(PreTrainedModel):
         """
         assert audio_prompt.dim() == 2 if audio_prompt is not None else True
 
-        device = audio_prompt.device if audio_prompt is not None else next(self.parameters()).device
+        device = (
+            audio_prompt.device
+            if audio_prompt is not None
+            else next(self.parameters()).device
+        )
 
         self.model.eval()
         self.model.max_seq_length = max_returned_tokens
